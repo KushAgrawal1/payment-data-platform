@@ -1,4 +1,3 @@
-import pytest
 from pyspark.sql import Row
 
 def test_deduplication(spark_session):

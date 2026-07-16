@@ -1,4 +1,3 @@
-import pytest
 from ingestion.payment_generator import PaymentGenerator
 
 def test_generate_transaction():

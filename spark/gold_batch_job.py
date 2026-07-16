@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, count, sum, avg
+from pyspark.sql.functions import count, sum, avg
 
 # Initialize Batch Spark Session
 spark = SparkSession.builder \

@@ -1,4 +1,3 @@
-import pytest
 # Assuming your generator file inside airflow/dags or ingestion is importable
 from data_generator import generate_payments
 
