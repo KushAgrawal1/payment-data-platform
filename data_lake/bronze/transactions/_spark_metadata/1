@@ -1,0 +1,2 @@
+v1
+{"path":"file:///Users/kushagrawal/payment-data-platform/data_lake/bronze/transactions/year=2026/month=7/day=16/country=FR/part-00000-08d6fc92-6a39-4e04-9273-7f7f567d2c9f.c000.snappy.parquet","size":2851,"isDir":false,"modificationTime":1784220739562,"blockReplication":1,"blockSize":33554432,"action":"add"}

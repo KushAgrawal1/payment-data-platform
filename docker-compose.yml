@@ -6,11 +6,11 @@ services:
     image: postgres:15-alpine
     container_name: pdp-postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-payment_dw}
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,6 +26,11 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
@@ -49,7 +54,7 @@ services:
 
   # --- Spark Processing Engine ---
   spark-master:
-    image: bitnami/spark:3.4.1
+    image: bitnamilegacy/spark:3.4.1
     container_name: pdp-spark-master
     environment:
       - SPARK_MODE=master
@@ -58,12 +63,18 @@ services:
       - "7077:7077"
     volumes:
       - ./spark:/opt/bitnami/spark/jobs
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s = socket.socket(); s.connect(('127.0.0.1', 8080))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   spark-worker:
-    image: bitnami/spark:3.4.1
+    image: bitnamilegacy/spark:3.4.1
     container_name: pdp-spark-worker
     depends_on:
-      - spark-master
+      spark-master:
+        condition: service_healthy
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark-master:7077
@@ -72,37 +83,71 @@ services:
 
   # --- Airflow Orchestration ---
   airflow-webserver:
-    image: ${AIRFLOW_IMAGE_NAME}
+    image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.7.1}
     container_name: pdp-airflow-webserver
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=${AIRFLOW_CONN_METADATA_DB}
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=${AIRFLOW_CONN_METADATA_DB:-postgresql+psycopg2://postgres:postgres_secure_password@postgres:5432/payment_dw}
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - _PIP_ADDITIONAL_REQUIREMENTS=kafka-python-ng psycopg2-binary # <-- ADD THIS LINE
     logging:
       options:
         max-size: "10m"
         max-file: "3"
     volumes:
-      - ./dags:/opt/airflow/dags
+      - ./airflow/dags:/opt/airflow/dags
     ports:
       - "8082:8080"
     command: webserver
 
   airflow-scheduler:
-    image: ${AIRFLOW_IMAGE_NAME}
+    image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.7.1}
     container_name: pdp-airflow-scheduler
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=${AIRFLOW_CONN_METADATA_DB}
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=${AIRFLOW_CONN_METADATA_DB:-postgresql+psycopg2://postgres:postgres_secure_password@postgres:5432/payment_dw}
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - _PIP_ADDITIONAL_REQUIREMENTS=kafka-python-ng psycopg2-binary # <-- ADD THIS LINE
     volumes:
-      - ./dags:/opt/airflow/dags
+      - ./airflow/dags:/opt/airflow/dags
     command: scheduler
+
+  # --- Object Storage (S3 Mock) ---
+  minio:
+    image: minio/minio:latest
+    container_name: pdp-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"        # S3 API Port (used by Spark)
+      - "9001:9001"        # Web UI Console Port
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+  mc:
+    image: minio/mc:latest
+    container_name: pdp-minio-cli
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+        until /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin; do
+          echo 'Waiting for MinIO...'
+          sleep 1
+        done;
+        /usr/bin/mc mb myminio/payment-data-lake || true;
+        echo 'Bucket payment-data-lake created successfully'
+      "
 
 volumes:
   postgres_data:
+  minio_data:
