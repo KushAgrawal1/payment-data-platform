@@ -56,7 +56,8 @@ def execute_merge(temp_table: str) -> None:
         conn.close()
 
 def process_medallion_microbatch(batch_df, batch_id: int) -> None:
-    if batch_df.isEmpty(): return
+    if batch_df.isEmpty():
+        return
     batch_df.cache()
 
     # 1. Bronze/Silver S3 Writes
